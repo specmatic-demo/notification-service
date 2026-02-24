@@ -1,0 +1,7 @@
+services:
+  mqtt:
+    image: eclipse-mosquitto:latest
+    container_name: notification-service-mqtt
+    network_mode: host
+    ports:
+      - "1883:1883"

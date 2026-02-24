@@ -1,0 +1,97 @@
+version: 3
+systemUnderTest:
+  service:
+    $ref: "#/components/services/notificationService"
+    runOptions:
+      $ref: "#/components/runOptions/notificationService"
+dependencies:
+  services:
+    - service:
+        $ref: "#/components/services/customerEvents"
+        runOptions:
+          $ref: "#/components/runOptions/customerEventsMock"
+    - service:
+        $ref: "#/components/services/orderEvents"
+        runOptions:
+          $ref: "#/components/runOptions/orderEventsMock"
+    - service:
+        $ref: "#/components/services/pricingEvents"
+        runOptions:
+          $ref: "#/components/runOptions/pricingEventsMock"
+components:
+
+  sources:
+    centralContractRepo:
+      git:
+        url: https://github.com/specmatic-demo/central-contract-repository
+  services:
+    notificationService:
+      description: "Notification Service"
+      definitions:
+        - definition:
+            source:
+              $ref: "#/components/sources/centralContractRepo"
+            specs:
+              - spec:
+                  path: "contracts/services/notification-service/events/mqtt-asyncapi.yaml"
+    customerEvents:
+      description: "Customer Service events dependency"
+      definitions:
+        - definition:
+            source:
+              $ref: "#/components/sources/centralContractRepo"
+            specs:
+              - spec:
+                  path: "contracts/services/customer-service/events/asyncapi.yaml"
+    orderEvents:
+      description: "Order Service events dependency"
+      definitions:
+        - definition:
+            source:
+              $ref: "#/components/sources/centralContractRepo"
+            specs:
+              - spec:
+                  path: "contracts/services/order-service/events/kafka-asyncapi.yaml"
+    pricingEvents:
+      description: "Pricing Service events dependency"
+      definitions:
+        - definition:
+            source:
+              $ref: "#/components/sources/centralContractRepo"
+            specs:
+              - spec:
+                  path: "contracts/services/pricing-service/events/asyncapi.yaml"
+  runOptions:
+    notificationService:
+      asyncapi:
+        type: test
+        servers:
+          - host: tcp://localhost:1883
+            protocol: mqtt
+    customerEventsMock:
+      asyncapi:
+        type: mock
+        inMemoryBroker:
+          host: localhost
+          port: 5301
+        servers:
+          - host: "localhost:5301"
+            protocol: kafka
+    orderEventsMock:
+      asyncapi:
+        type: mock
+        inMemoryBroker:
+          host: localhost
+          port: 5302
+        servers:
+          - host: "localhost:5302"
+            protocol: kafka
+    pricingEventsMock:
+      asyncapi:
+        type: mock
+        inMemoryBroker:
+          host: localhost
+          port: 5303
+        servers:
+          - host: "localhost:5303"
+            protocol: kafka
