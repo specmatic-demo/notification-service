@@ -1,7 +1,12 @@
 services:
   mqtt:
-    image: eclipse-mosquitto:latest
+    image: eclipse-mosquitto:2
     container_name: notification-service-mqtt
+    restart: unless-stopped
     network_mode: host
-    ports:
-      - "1883:1883"
+
+  my-app:
+    build: .
+    container_name: notification-service
+    restart: unless-stopped
+    network_mode: host
