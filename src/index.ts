@@ -1,7 +1,5 @@
-'use strict';
-
-const express = require('express');
-const mqtt = require('mqtt');
+import express, { type Request, type Response } from 'express';
+import mqtt, { type MqttClient } from 'mqtt';
 
 const host = process.env.NOTIFICATION_HOST || '0.0.0.0';
 const port = Number.parseInt(process.env.NOTIFICATION_PORT || '8080', 10);
@@ -10,11 +8,17 @@ const brokerUrl = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
-const receivedMessages = [];
+type ReceivedMessage = {
+  topic: string;
+  payload: Record<string, unknown>;
+  receivedAt: string;
+};
+
+const receivedMessages: ReceivedMessage[] = [];
 const maxMessages = 100;
 let mqttConnected = false;
 
-function rememberMessage(topic, payload) {
+function rememberMessage(topic: string, payload: Record<string, unknown>): ReceivedMessage {
   const entry = {
     topic,
     payload,
@@ -29,7 +33,7 @@ function rememberMessage(topic, payload) {
   return entry;
 }
 
-function parseJsonOrRaw(messageBuffer) {
+function parseJsonOrRaw(messageBuffer: Buffer): Record<string, unknown> {
   const text = messageBuffer.toString('utf8');
   try {
     return JSON.parse(text);
@@ -38,13 +42,13 @@ function parseJsonOrRaw(messageBuffer) {
   }
 }
 
-const mqttClient = mqtt.connect(brokerUrl);
+const mqttClient: MqttClient = mqtt.connect(brokerUrl);
 
 mqttClient.on('connect', () => {
   mqttConnected = true;
   console.log(`[mqtt] connected to ${brokerUrl}`);
 
-  mqttClient.subscribe(['notification/user', 'notification/ack'], { qos: 1 }, (error) => {
+  mqttClient.subscribe(['notification/user', 'notification/ack'], { qos: 1 }, (error?: Error | null) => {
     if (error) {
       console.error(`[mqtt] subscribe failed: ${error.message}`);
       return;
@@ -63,18 +67,18 @@ mqttClient.on('offline', () => {
   console.warn('[mqtt] offline');
 });
 
-mqttClient.on('error', (error) => {
+mqttClient.on('error', (error: Error) => {
   mqttConnected = false;
   console.error(`[mqtt] error: ${error.message}`);
 });
 
-mqttClient.on('message', (topic, message) => {
+mqttClient.on('message', (topic: string, message: Buffer) => {
   const payload = parseJsonOrRaw(message);
   const entry = rememberMessage(topic, payload);
   console.log(`[notification-received] topic=${entry.topic} payload=${JSON.stringify(entry.payload)}`);
 });
 
-app.get('/health', (_req, res) => {
+app.get('/health', (_req: Request, res: Response) => {
   res.json({
     status: 'UP',
     mqttConnected,
@@ -82,7 +86,7 @@ app.get('/health', (_req, res) => {
   });
 });
 
-app.get('/notifications/received', (_req, res) => {
+app.get('/notifications/received', (_req: Request, res: Response) => {
   res.json({
     count: receivedMessages.length,
     messages: receivedMessages
