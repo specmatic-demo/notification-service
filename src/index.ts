@@ -1,5 +1,6 @@
 import express, { type Request, type Response } from 'express';
 import mqtt, { type MqttClient } from 'mqtt';
+import type { ReceivedMessage } from './types';
 
 const host = process.env.NOTIFICATION_HOST || '0.0.0.0';
 const port = Number.parseInt(process.env.NOTIFICATION_PORT || '8080', 10);
@@ -7,12 +8,6 @@ const brokerUrl = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
-
-type ReceivedMessage = {
-  topic: string;
-  payload: Record<string, unknown>;
-  receivedAt: string;
-};
 
 const receivedMessages: ReceivedMessage[] = [];
 const maxMessages = 100;
