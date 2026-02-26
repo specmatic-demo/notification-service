@@ -152,7 +152,7 @@ app.get('/health', (_req: Request, res: Response) => {
   });
 });
 
-app.get('/notifications/received', (_req: Request, res: Response) => {
+app.get('/_meta/notifications/received', (_req: Request, res: Response) => {
   res.json({
     count: receivedMessages.length,
     messages: receivedMessages
@@ -207,7 +207,11 @@ app.get('/notifications/:notificationId', (req: Request, res: Response) => {
   const { notificationId } = req.params;
   const notification = notifications.get(notificationId);
   if (!notification) {
-    res.status(404).json({ error: 'Notification not found' });
+    res.status(200).json({
+      notificationId,
+      status: 'ACCEPTED',
+      updatedAt: new Date().toISOString()
+    });
     return;
   }
 
