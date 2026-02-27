@@ -8,7 +8,7 @@ RUN git clone https://github.com/specmatic-demo/central-contract-repository /app
 
 ENV NOTIFICATION_HOST=0.0.0.0
 ENV NOTIFICATION_PORT=8080
-ENV MQTT_BROKER_URL=mqtt://localhost:1883
+ENV NOTIFICATION_KAFKA_BROKERS=localhost:9092
 
 EXPOSE 8080
 CMD ["npm", "run", "start"]

@@ -1,6 +1,6 @@
 import express, { type Request, type Response } from 'express';
 import { randomUUID } from 'node:crypto';
-import mqtt, { type MqttClient } from 'mqtt';
+import { Kafka, type Consumer, type Producer } from 'kafkajs';
 import type {
   DispatchNotificationRequest,
   DispatchNotificationResult,
@@ -11,15 +11,27 @@ import type {
 
 const host = process.env.NOTIFICATION_HOST || '0.0.0.0';
 const port = Number.parseInt(process.env.NOTIFICATION_PORT || '8080', 10);
-const brokerUrl = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
+const kafkaBrokers = (process.env.NOTIFICATION_KAFKA_BROKERS || 'localhost:9092')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean);
+const userNotificationTopic = process.env.NOTIFICATION_USER_TOPIC || 'notification.user';
+const notificationAckTopic = process.env.NOTIFICATION_ACK_TOPIC || 'notification.ack';
+const ackConsumerGroup = process.env.NOTIFICATION_ACK_GROUP || 'notification-service-ack-group';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
+const kafka = new Kafka({
+  clientId: 'notification-service',
+  brokers: kafkaBrokers
+});
+const producer: Producer = kafka.producer();
+const consumer: Consumer = kafka.consumer({ groupId: ackConsumerGroup });
 const receivedMessages: ReceivedMessage[] = [];
 const notifications = new Map<string, StoredNotification>();
 const maxMessages = 100;
-let mqttConnected = false;
+let kafkaConnected = false;
 
 function rememberMessage(topic: string, payload: Record<string, unknown>): ReceivedMessage {
   const entry = {
@@ -39,7 +51,7 @@ function rememberMessage(topic: string, payload: Record<string, unknown>): Recei
 function parseJsonOrRaw(messageBuffer: Buffer): Record<string, unknown> {
   const text = messageBuffer.toString('utf8');
   try {
-    return JSON.parse(text);
+    return JSON.parse(text) as Record<string, unknown>;
   } catch (_error) {
     return { raw: text };
   }
@@ -68,16 +80,10 @@ function isDispatchPayload(value: unknown): value is DispatchNotificationRequest
   );
 }
 
-function publishMqttMessage(topic: string, payload: Record<string, unknown>): Promise<void> {
-  return new Promise((resolve, reject) => {
-    mqttClient.publish(topic, JSON.stringify(payload), { qos: 1 }, (error?: Error | null) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-
-      resolve();
-    });
+async function publishKafkaMessage(topic: string, payload: Record<string, unknown>): Promise<void> {
+  await producer.send({
+    topic,
+    messages: [{ key: String(payload.requestId || randomUUID()), value: JSON.stringify(payload) }]
   });
 }
 
@@ -89,66 +95,47 @@ function toNotificationStatus(record: StoredNotification): NotificationStatus {
   };
 }
 
-const mqttClient: MqttClient = mqtt.connect(brokerUrl);
+async function startKafkaMessaging(): Promise<void> {
+  await producer.connect();
+  await consumer.connect();
+  await consumer.subscribe({ topic: notificationAckTopic, fromBeginning: false });
+  kafkaConnected = true;
+  console.log(`[kafka] connected to ${kafkaBrokers.join(',')}`);
+  console.log(`[kafka] subscribed to ${notificationAckTopic}`);
 
-mqttClient.on('connect', () => {
-  mqttConnected = true;
-  console.log(`[mqtt] connected to ${brokerUrl}`);
+  await consumer.run({
+    eachMessage: async ({ topic, message }) => {
+      if (!message.value) {
+        return;
+      }
 
-  mqttClient.subscribe(['notification/user', 'notification/ack'], { qos: 1 }, (error?: Error | null) => {
-    if (error) {
-      console.error(`[mqtt] subscribe failed: ${error.message}`);
-      return;
+      const payload = parseJsonOrRaw(message.value);
+      const entry = rememberMessage(topic, payload);
+      console.log(`[notification-received] topic=${entry.topic} payload=${JSON.stringify(entry.payload)}`);
+
+      const notificationId = payload.notificationId;
+      const status = payload.status;
+      if (typeof notificationId !== 'string' || (status !== 'DELIVERED' && status !== 'FAILED')) {
+        return;
+      }
+
+      const existing = notifications.get(notificationId);
+      if (!existing) {
+        return;
+      }
+
+      existing.status = status;
+      existing.updatedAt = new Date().toISOString();
+      notifications.set(notificationId, existing);
     }
-
-    console.log('[mqtt] subscribed to notification/user and notification/ack');
   });
-});
-
-mqttClient.on('reconnect', () => {
-  console.warn('[mqtt] reconnecting');
-});
-
-mqttClient.on('offline', () => {
-  mqttConnected = false;
-  console.warn('[mqtt] offline');
-});
-
-mqttClient.on('error', (error: Error) => {
-  mqttConnected = false;
-  console.error(`[mqtt] error: ${error.message}`);
-});
-
-mqttClient.on('message', (topic: string, message: Buffer) => {
-  const payload = parseJsonOrRaw(message);
-  const entry = rememberMessage(topic, payload);
-  console.log(`[notification-received] topic=${entry.topic} payload=${JSON.stringify(entry.payload)}`);
-
-  if (topic !== 'notification/ack') {
-    return;
-  }
-
-  const notificationId = payload.notificationId;
-  const status = payload.status;
-  if (typeof notificationId !== 'string' || (status !== 'DELIVERED' && status !== 'FAILED')) {
-    return;
-  }
-
-  const existing = notifications.get(notificationId);
-  if (!existing) {
-    return;
-  }
-
-  existing.status = status;
-  existing.updatedAt = new Date().toISOString();
-  notifications.set(notificationId, existing);
-});
+}
 
 app.get('/health', (_req: Request, res: Response) => {
   res.json({
     status: 'UP',
-    mqttConnected,
-    brokerUrl
+    kafkaConnected,
+    kafkaBrokers
   });
 });
 
@@ -174,7 +161,7 @@ app.post('/notifications', async (req: Request, res: Response) => {
   });
 
   try {
-    await publishMqttMessage('notification/user', {
+    await publishKafkaMessage(userNotificationTopic, {
       notificationId,
       requestId: randomUUID(),
       title: req.body.title,
@@ -188,7 +175,7 @@ app.post('/notifications', async (req: Request, res: Response) => {
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`[mqtt] publish failed: ${message}`);
+    console.error(`[kafka] publish failed: ${message}`);
     notifications.set(notificationId, {
       notificationId,
       status: 'FAILED',
@@ -216,6 +203,12 @@ app.get('/notifications/:notificationId', (req: Request, res: Response) => {
   }
 
   res.status(200).json(toNotificationStatus(notification));
+});
+
+void startKafkaMessaging().catch((error: unknown) => {
+  kafkaConnected = false;
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`[kafka] startup failed: ${message}`);
 });
 
 app.listen(port, host, () => {

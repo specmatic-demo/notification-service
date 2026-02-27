@@ -30,5 +30,5 @@ components:
       asyncapi:
         type: test
         servers:
-          - host: tcp://localhost:1883
-            protocol: mqtt
+          - host: localhost:9092
+            protocol: kafka
