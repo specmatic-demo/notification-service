@@ -6,6 +6,8 @@ import type {
   DispatchNotificationResult,
   NotificationStatus,
   ReceivedMessage,
+  ShippingReturnedEvent,
+  ShippingShippedEvent,
   StoredNotification
 } from './types';
 
@@ -17,6 +19,8 @@ const kafkaBrokers = (process.env.NOTIFICATION_KAFKA_BROKERS || 'localhost:9092'
   .filter(Boolean);
 const userNotificationTopic = process.env.NOTIFICATION_USER_TOPIC || 'notification.user';
 const notificationAckTopic = process.env.NOTIFICATION_ACK_TOPIC || 'notification.ack';
+const shippingShippedTopic = process.env.SHIPPING_SHIPPED_TOPIC || 'shipping.shipped';
+const shippingReturnedTopic = process.env.SHIPPING_RETURNED_TOPIC || 'shipping.returned';
 const ackConsumerGroup = process.env.NOTIFICATION_ACK_GROUP || 'notification-service-ack-group';
 
 const app = express();
@@ -80,6 +84,68 @@ function isDispatchPayload(value: unknown): value is DispatchNotificationRequest
   );
 }
 
+function isShippingShippedPayload(value: unknown): value is ShippingShippedEvent {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+
+  const payload = value as Record<string, unknown>;
+  const validStatus =
+    payload.status === 'CREATED' ||
+    payload.status === 'PICKED_UP' ||
+    payload.status === 'IN_TRANSIT' ||
+    payload.status === 'OUT_FOR_DELIVERY' ||
+    payload.status === 'DELIVERED' ||
+    payload.status === 'FAILED';
+  const validPriority =
+    typeof payload.priority === 'undefined' ||
+    payload.priority === 'LOW' ||
+    payload.priority === 'NORMAL' ||
+    payload.priority === 'HIGH';
+
+  return (
+    typeof payload.eventId === 'string' &&
+    typeof payload.orderId === 'string' &&
+    typeof payload.shipmentId === 'string' &&
+    validStatus &&
+    typeof payload.title === 'string' &&
+    typeof payload.body === 'string' &&
+    validPriority &&
+    typeof payload.occurredAt === 'string'
+  );
+}
+
+function isShippingReturnedPayload(value: unknown): value is ShippingReturnedEvent {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+
+  const payload = value as Record<string, unknown>;
+  const validStatus =
+    payload.status === 'RETURN_INITIATED' ||
+    payload.status === 'IN_TRANSIT' ||
+    payload.status === 'RECEIVED' ||
+    payload.status === 'COMPLETED' ||
+    payload.status === 'FAILED';
+  const validPriority =
+    typeof payload.priority === 'undefined' ||
+    payload.priority === 'LOW' ||
+    payload.priority === 'NORMAL' ||
+    payload.priority === 'HIGH';
+
+  return (
+    typeof payload.eventId === 'string' &&
+    typeof payload.orderId === 'string' &&
+    typeof payload.shipmentId === 'string' &&
+    typeof payload.returnId === 'string' &&
+    validStatus &&
+    typeof payload.title === 'string' &&
+    typeof payload.body === 'string' &&
+    validPriority &&
+    typeof payload.occurredAt === 'string'
+  );
+}
+
 async function publishKafkaMessage(topic: string, payload: Record<string, unknown>): Promise<void> {
   await producer.send({
     topic,
@@ -99,9 +165,11 @@ async function startKafkaMessaging(): Promise<void> {
   await producer.connect();
   await consumer.connect();
   await consumer.subscribe({ topic: notificationAckTopic, fromBeginning: false });
+  await consumer.subscribe({ topic: shippingShippedTopic, fromBeginning: false });
+  await consumer.subscribe({ topic: shippingReturnedTopic, fromBeginning: false });
   kafkaConnected = true;
   console.log(`[kafka] connected to ${kafkaBrokers.join(',')}`);
-  console.log(`[kafka] subscribed to ${notificationAckTopic}`);
+  console.log(`[kafka] subscribed to ${notificationAckTopic}, ${shippingShippedTopic}, ${shippingReturnedTopic}`);
 
   await consumer.run({
     eachMessage: async ({ topic, message }) => {
@@ -112,6 +180,36 @@ async function startKafkaMessaging(): Promise<void> {
       const payload = parseJsonOrRaw(message.value);
       const entry = rememberMessage(topic, payload);
       console.log(`[notification-received] topic=${entry.topic} payload=${JSON.stringify(entry.payload)}`);
+
+      if (topic === shippingShippedTopic) {
+        if (!isShippingShippedPayload(payload)) {
+          return;
+        }
+
+        await publishKafkaMessage(userNotificationTopic, {
+          notificationId: payload.eventId,
+          requestId: payload.orderId,
+          title: payload.title,
+          body: payload.body,
+          priority: payload.priority || 'NORMAL'
+        });
+        return;
+      }
+
+      if (topic === shippingReturnedTopic) {
+        if (!isShippingReturnedPayload(payload)) {
+          return;
+        }
+
+        await publishKafkaMessage(userNotificationTopic, {
+          notificationId: payload.eventId,
+          requestId: payload.orderId,
+          title: payload.title,
+          body: payload.body,
+          priority: payload.priority || 'NORMAL'
+        });
+        return;
+      }
 
       const notificationId = payload.notificationId;
       const status = payload.status;
