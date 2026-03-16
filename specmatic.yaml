@@ -25,6 +25,7 @@ components:
     notificationService:
       openapi:
         type: test
+        filter: "${FILTER:STATUS >= '0'}"
         host: localhost
         port: 8080
       asyncapi:
