@@ -1,0 +1,153 @@
+asyncapi: 3.0.0
+info:
+  title: Notification Service Kafka Topics
+  version: 1.2.0
+defaultContentType: application/json
+servers:
+  kafkaServer:
+    host: localhost:9092
+    protocol: kafka
+
+channels:
+  userNotification:
+    address: notification.user
+    servers:
+      - $ref: '#/servers/kafkaServer'
+    messages:
+      userNotification:
+        $ref: '#/components/messages/UserNotification'
+  notificationDeliveryAck:
+    address: notification.ack
+    servers:
+      - $ref: '#/servers/kafkaServer'
+    messages:
+      deliveryAck:
+        $ref: '#/components/messages/NotificationDeliveryAck'
+  shippingShipped:
+    address: shipping.shipped
+    servers:
+      - $ref: '#/servers/kafkaServer'
+    messages:
+      shippingShipped:
+        $ref: '#/components/messages/ShippingShipped'
+  shippingReturned:
+    address: shipping.returned
+    servers:
+      - $ref: '#/servers/kafkaServer'
+    messages:
+      shippingReturned:
+        $ref: '#/components/messages/ShippingReturned'
+operations:
+  publishUserNotification:
+    action: receive
+    summary: Pushes per-user real-time notifications
+    channel:
+      $ref: '#/channels/userNotification'
+    messages:
+      - $ref: '#/channels/userNotification/messages/userNotification'
+  receiveDeliveryAck:
+    action: receive
+    summary: Receives client/device delivery acknowledgement for sent notification
+    channel:
+      $ref: '#/channels/notificationDeliveryAck'
+    messages:
+      - $ref: '#/channels/notificationDeliveryAck/messages/deliveryAck'
+  receiveShippingShipped:
+    action: receive
+    summary: Receives shipped events from shipping workflows
+    channel:
+      $ref: '#/channels/shippingShipped'
+    messages:
+      - $ref: '#/channels/shippingShipped/messages/shippingShipped'
+  receiveShippingReturned:
+    action: receive
+    summary: Receives return-completed events from shipping workflows
+    channel:
+      $ref: '#/channels/shippingReturned'
+    messages:
+      - $ref: '#/channels/shippingReturned/messages/shippingReturned'
+components:
+  messages:
+    UserNotification:
+      payload:
+        type: object
+        required: [notificationId, requestId, title, body, priority]
+        properties:
+          notificationId:
+            type: string
+          requestId:
+            type: string
+          title:
+            type: string
+          body:
+            type: string
+          priority:
+            type: string
+            enum: [LOW, NORMAL, HIGH]
+    NotificationDeliveryAck:
+      payload:
+        type: object
+        required: [requestId, notificationId, acknowledgedAt, status]
+        properties:
+          requestId:
+            type: string
+          notificationId:
+            type: string
+          acknowledgedAt:
+            type: string
+            format: date-time
+          status:
+            type: string
+            enum: [DELIVERED, FAILED]
+          failureReason:
+            type: string
+    ShippingShipped:
+      payload:
+        type: object
+        required: [eventId, orderId, shipmentId, status, title, body, occurredAt]
+        properties:
+          eventId:
+            type: string
+          orderId:
+            type: string
+          shipmentId:
+            type: string
+          status:
+            type: string
+            enum: [CREATED, PICKED_UP, IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERED, FAILED]
+          title:
+            type: string
+          body:
+            type: string
+          priority:
+            type: string
+            enum: [LOW, NORMAL, HIGH]
+          occurredAt:
+            type: string
+            format: date-time
+    ShippingReturned:
+      payload:
+        type: object
+        required: [eventId, orderId, shipmentId, returnId, status, title, body, occurredAt]
+        properties:
+          eventId:
+            type: string
+          orderId:
+            type: string
+          shipmentId:
+            type: string
+          returnId:
+            type: string
+          status:
+            type: string
+            enum: [RETURN_INITIATED, IN_TRANSIT, RECEIVED, COMPLETED, FAILED]
+          title:
+            type: string
+          body:
+            type: string
+          priority:
+            type: string
+            enum: [LOW, NORMAL, HIGH]
+          occurredAt:
+            type: string
+            format: date-time
