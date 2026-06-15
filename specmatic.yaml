@@ -6,21 +6,21 @@ systemUnderTest:
       $ref: "#/components/runOptions/notificationService"
 components:
   sources:
-    centralContractRepo:
-      git:
-        url: https://github.com/specmatic-demo/central-contract-repository
+    localSpecs:
+      filesystem:
+        directory: specs
   services:
     notificationService:
       description: "Notification Service"
       definitions:
         - definition:
             source:
-              $ref: "#/components/sources/centralContractRepo"
+              $ref: "#/components/sources/localSpecs"
             specs:
               - spec:
-                  path: "contracts/services/notification-service/http/openapi.yaml"
+                  path: "openapi.yaml"
               - spec:
-                  path: "contracts/services/notification-service/events/asyncapi.yaml"
+                  path: "asyncapi.yaml"
   runOptions:
     notificationService:
       openapi:

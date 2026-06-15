@@ -1,0 +1,91 @@
+openapi: 3.0.3
+info:
+  title: Notification Service API
+  version: 1.0.0
+servers:
+  - url: https://notification.internal.example.com
+paths:
+  /notifications:
+    post:
+      summary: Dispatch a notification
+      operationId: dispatchNotification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DispatchNotificationRequest'
+      responses:
+        '202':
+          description: Dispatch accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DispatchNotificationResult'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /notifications/{notificationId}:
+    get:
+      summary: Get notification delivery status
+      operationId: getNotificationStatus
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Notification status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationStatus'
+        '404':
+          description: Notification not found
+components:
+  schemas:
+    DispatchNotificationRequest:
+      type: object
+      required: [userId, channel, title, body]
+      properties:
+        userId:
+          type: string
+        channel:
+          type: string
+          enum: [EMAIL, SMS, PUSH, IN_APP]
+        title:
+          type: string
+        body:
+          type: string
+    DispatchNotificationResult:
+      type: object
+      required: [notificationId, status]
+      properties:
+        notificationId:
+          type: string
+        status:
+          type: string
+          enum: [ACCEPTED, REJECTED]
+    NotificationStatus:
+      type: object
+      required: [notificationId, status]
+      properties:
+        notificationId:
+          type: string
+        status:
+          type: string
+          enum: [ACCEPTED, SENT, DELIVERED, FAILED]
+        updatedAt:
+          type: string
+          format: date-time
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
